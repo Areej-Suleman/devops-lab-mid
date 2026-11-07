@@ -10,10 +10,10 @@ function App() {
     const data = Object.fromEntries(formData.entries());
 
     // Validation: Missing registration number
-    if (!data.regNumber) {
-      setError('Registration number is required');
-      return;
-    }
+    //if (!data.regNumber) {
+    // setError('Registration number is required');
+    // return;
+    //}
     
     // Validation: Invalid URL
     try {
