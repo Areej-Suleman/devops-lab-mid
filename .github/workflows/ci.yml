@@ -1,0 +1,117 @@
+name: DevOps Lab Mid CI
+
+on:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./portal
+        run: npm install
+
+      - name: Run Tests
+        working-directory: ./portal
+        id: test-run
+        # The '|| true' ensures the pipeline continues even if tests fail so the report is always sent
+        run: npm test || true 
+
+      - name: Generate and Send Report
+        working-directory: ./portal
+        env:
+          RECEIVER_URL: ${{ secrets.RECEIVER_URL }}
+          REPO_NAME: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          python -c "
+          import json, urllib.request, os, datetime
+          
+          with open('test-results.json') as f:
+              results = json.load(f)
+              
+          test_cases = []
+          for test_result in results['testResults']:
+              for assertion in test_result['assertionResults']:
+                  test_cases.append({
+                      'name': assertion['title'],
+                      'status': assertion['status'],
+                      'message': assertion.get('failureMessages', [''])[0] if assertion['status'] == 'failed' else None
+                  })
+                  
+          passed = sum(1 for t in test_cases if t['status'] == 'passed')
+          failed = sum(1 for t in test_cases if t['status'] == 'failed')
+          total = len(test_cases)
+          
+          payload = {
+              'repository': os.environ['REPO_NAME'],
+              'branch': os.environ['BRANCH'],
+              'commit_sha': os.environ['COMMIT_SHA'],
+              'run_id': os.environ['RUN_ID'],
+              'timestamp': datetime.datetime.utcnow().isoformat() + 'Z',
+              'tests': test_cases,
+              'summary': {
+                  'total': total,
+                  'passed': passed,
+                  'failed': failed,
+                  'overall_status': 'Failed' if failed > 0 else 'Passed'
+              }
+          }
+          
+          req = urllib.request.Request(os.environ['RECEIVER_URL'], method='POST')
+          req.add_header('Content-Type', 'application/json')
+          urllib.request.urlopen(req, data=json.dumps(payload).encode('utf-8'))
+          
+          # Fail the build if tests actually failed
+          if failed > 0:
+              exit(1)
+          "
+
+      - name: Send Email Report (Bonus)
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: CI Report for ${{ github.repository }} - ${{ job.status }}
+          to: ${{ secrets.EMAIL_USERNAME }}
+          from: GitHub Actions
+          body: |
+            Pipeline Run: ${{ github.run_id }}
+            Commit: ${{ github.sha }}
+            Overall Test Result: ${{ job.status }}
+            Please check GitHub Actions for full test counts and details.
+
+  deploy-pages:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    if: success() # Conditional deployment (Bonus)
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - working-directory: ./portal
+        run: |
+          npm install
+          npm run build
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./portal/dist
