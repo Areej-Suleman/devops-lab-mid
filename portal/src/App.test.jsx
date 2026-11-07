@@ -10,7 +10,7 @@ test('Complete details and a valid submission URL saves submission', () => {
   fireEvent.change(screen.getByPlaceholderText('Submission URL'), { target: { value: 'https://github.com/areej/repo' } });
   fireEvent.click(screen.getByText('Submit'));
   
-  expect(screen.getByTestId('submission-list')).toHaveTextContent('FA23-BAI-018');
+  expect(screen.getByTestId('submission-list')).toHaveTextContent('this will fail because the reg number is not saved');
 });
 
 test('Missing registration number rejects with a validation message', () => {
